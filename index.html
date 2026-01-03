@@ -1,0 +1,1503 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital Mirror & Notes</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background-color: #f0f2f5; /* Default fallback background */
+        }
+
+        /* Core Feature 1: Mirror */
+        #mirror-container {
+            position: fixed;
+            top: 5vh;
+            left: 5vw;
+            width: 90vw;
+            height: 90vh;
+            z-index: 0;
+            background-color: #e0e0e0; /* Blank solid color when camera off */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            /* Default Mirror Frame */
+            transition: all 0.3s;
+        }
+
+        /* Drawing Canvas */
+        #drawing-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 5; /* Above video, below notes */
+            cursor: crosshair;
+            pointer-events: none; /* Let clicks pass unless drawing mode is on */
+        }
+
+        #drawing-canvas.active {
+            pointer-events: auto;
+        }
+
+        /* Floating Image */
+        .floating-image {
+            position: absolute;
+            z-index: 10;
+            cursor: move;
+            max-width: 300px;
+            max-height: 300px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .floating-image:hover {
+            transform: scale(1.02);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+            z-index: 12;
+        }
+
+        .floating-image .delete-img-btn {
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            width: 24px;
+            height: 24px;
+            background: #FF3B30;
+            color: white;
+            border-radius: 50%;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 14px;
+            border: 2px solid white;
+        }
+
+        .floating-image:hover .delete-img-btn {
+            display: flex;
+        }
+
+        /* Frame Styles */
+        .frame-gold {
+            border: 15px solid #d4af37;
+            border-image: linear-gradient(45deg, #b8860b, #ffd700, #b8860b, #daa520) 1;
+            box-shadow: inset 0 0 50px rgba(0,0,0,0.5), 0 10px 30px rgba(0,0,0,0.3);
+        }
+        
+        .frame-silver {
+            border: 15px solid #c0c0c0;
+            border-image: linear-gradient(45deg, #a9a9a9, #ffffff, #d3d3d3, #808080) 1;
+            box-shadow: inset 0 0 50px rgba(0,0,0,0.4), 0 10px 30px rgba(0,0,0,0.3);
+        }
+        
+        .frame-wood {
+            border: 20px solid #8b4513;
+            border-image: none;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8), 5px 10px 20px rgba(0,0,0,0.4);
+            border-radius: 10px;
+        }
+        
+        .frame-neon {
+            border: 5px solid #0ff;
+            box-shadow: 0 0 20px #0ff, inset 0 0 20px #0ff;
+            border-radius: 0;
+            border-image: none;
+        }
+
+        .frame-none {
+            border: none;
+            box-shadow: none;
+            background: transparent;
+        }
+
+        /* Steam/Fog Effect */
+        #steam-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Let clicks pass through */
+            background: radial-gradient(circle at center, transparent 30%, rgba(255,255,255,0.4) 80%, rgba(255,255,255,0.8) 100%);
+            mix-blend-mode: overlay;
+            opacity: 0.6;
+            z-index: 1;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* Mirror effect */
+            display: none; /* Hidden by default */
+        }
+
+        video.active {
+            display: block;
+        }
+
+        /* Controls */
+        #controls {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            display: flex;
+            gap: 15px;
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(10px);
+            border-radius: 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 20px;
+            background: #007AFF;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            outline: none;
+        }
+
+        button:hover {
+            opacity: 0.9;
+            transform: scale(1.05);
+        }
+
+        button.secondary {
+            background: #FF3B30;
+        }
+
+        button.neutral {
+            background: #34C759;
+        }
+
+        /* Core Feature 2: Notes */
+        .note {
+            position: absolute;
+            min-width: 200px;
+            min-height: 150px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+            z-index: 10;
+            transition: box-shadow 0.2s;
+        }
+
+        .note:hover {
+            box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+            z-index: 11; /* Bring to front on hover slightly */
+        }
+
+        .note.dragging {
+            opacity: 0.9;
+            cursor: grabbing;
+            z-index: 100; /* Max z-index when dragging */
+        }
+
+        .note-header {
+            height: 28px;
+            cursor: grab;
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            padding: 0 5px;
+            background: rgba(0,0,0,0.05);
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .note:hover .note-header {
+            opacity: 1;
+        }
+
+        .note-content {
+            flex: 1;
+            padding: 15px;
+            outline: none;
+            overflow-y: auto;
+            user-select: text; /* Allow text selection */
+            font-size: 16px;
+            line-height: 1.5;
+            background: transparent;
+        }
+
+        .note-content:empty::before {
+            content: '点击输入内容...';
+            color: rgba(0,0,0,0.4);
+            font-style: italic;
+            pointer-events: none;
+        }
+
+        /* Note Controls */
+        .note-btn {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: none;
+            margin-left: 5px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            color: #555;
+            background: rgba(255,255,255,0.5);
+        }
+
+        .note-btn:hover {
+            background: rgba(255,255,255,0.8);
+            color: #000;
+        }
+
+        /* Consistent Delete Button Style */
+        .delete-float-btn {
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            width: 24px;
+            height: 24px;
+            background: #FF3B30;
+            color: white;
+            border-radius: 50%;
+            display: none; /* Show on hover */
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 14px;
+            border: 2px solid white;
+            z-index: 20;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+
+        .note:hover .delete-float-btn,
+        .floating-image:hover .delete-float-btn {
+            display: flex;
+        }
+
+        /* Settings Panel */
+        .note-settings {
+            padding: 8px;
+            background: rgba(255,255,255,0.9);
+            border-top: 1px solid rgba(0,0,0,0.05);
+            display: none; /* Hidden by default */
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .note-settings.active {
+            display: flex;
+        }
+
+        .setting-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .setting-row label {
+            width: 40px;
+        }
+
+        input[type="color"] {
+            width: 20px;
+            height: 20px;
+            border: none;
+            padding: 0;
+            cursor: pointer;
+            background: none;
+        }
+
+        input[type="range"] {
+            flex: 1;
+            height: 4px;
+        }
+
+        /* Batch Import Modal */
+        #modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 2000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(2px);
+        }
+
+        #modal-content {
+            background: white;
+            padding: 20px;
+            border-radius: 20px;
+            width: 400px;
+            max-width: 90%;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        #modal-content h3 {
+            margin: 0;
+            color: #333;
+        }
+
+        textarea#batch-input {
+            width: 100%;
+            height: 150px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            resize: vertical;
+            font-family: inherit;
+        }
+
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        /* Scrollbar for note content */
+        .note-content::-webkit-scrollbar {
+            width: 6px;
+        }
+        .note-content::-webkit-scrollbar-thumb {
+            background: rgba(0,0,0,0.1);
+            border-radius: 3px;
+        }
+
+        /* Top Right Frame Selector */
+        #frame-selector {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 8px 15px;
+            border-radius: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            color: #333;
+        }
+
+        #frame-selector select {
+            border: 1px solid #ddd;
+            padding: 4px 8px;
+            border-radius: 5px;
+            font-size: 14px;
+            outline: none;
+            background: #fff;
+        }
+
+        .separator {
+            width: 1px;
+            height: 20px;
+            background: rgba(0,0,0,0.2);
+            margin: 0 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Mirror Area -->
+    <div id="mirror-container" class="frame-gold">
+        <video id="mirror" playsinline></video>
+        <canvas id="drawing-canvas"></canvas>
+        <div id="steam-overlay"></div>
+    </div>
+
+    <!-- Frame Selector (Top Right) -->
+    <div id="frame-selector">
+        <span>🖼 镜框风格：</span>
+        <select onchange="setFrame(this.value)">
+            <option value="frame-gold">土豪金</option>
+            <option value="frame-silver">科技银</option>
+            <option value="frame-wood">复古木</option>
+            <option value="frame-neon">赛博朋克</option>
+            <option value="frame-none">无边框</option>
+        </select>
+    </div>
+
+    <!-- Controls -->
+    <div id="controls">
+        <button id="btn-camera" onclick="toggleCamera()">📷 开启/关闭</button>
+        <button onclick="toggleGlobalSettings()" style="background: #8E8E93;">🎨 默认</button>
+        <button class="neutral" onclick="addNote()">➕ 便签</button>
+        <button onclick="openBatchModal()" style="background: #5856D6;">📥 批量</button>
+        <button onclick="organizeNotes()" style="background: #FF9500;">🧹 一键规整</button>
+        <div class="separator"></div>
+        <button onclick="toggleDrawing()" id="btn-draw" style="background: #333;">✏ 涂鸦</button>
+        <button onclick="clearDrawing()" style="background: #FF3B30; display:none;" id="btn-clear-draw">🗑</button>
+        <div class="separator"></div>
+        <button onclick="document.getElementById('img-upload').click()" style="background: #34C759;">🖼 图片</button>
+        <input type="file" id="img-upload" accept="image/*" style="display:none;" onchange="handleAddImage(this)">
+        <div class="separator"></div>
+        <button onclick="captureScreen()" style="background: #333;" title="截图">📸</button>
+        <button id="btn-record" onclick="toggleRecord()" style="background: #FF3B30;" title="录制">🔴</button>
+    </div>
+
+    <!-- Global Default Settings Panel -->
+    <div id="global-settings-panel">
+        <div class="panel-arrow"></div>
+        <h4 style="margin:0 0 10px 0; font-size:13px; color:#555; text-align:center; font-weight:600;">🎨 默认样式配置</h4>
+        
+        <div style="margin-bottom:12px;">
+            <div style="font-size:12px; color:#888; margin-bottom:5px;">预设颜色</div>
+            <div style="display:flex; justify-content:space-between; gap:10px;">
+                <div class="color-dot" onclick="setDefaultColor('classic')" style="background:#fff9c4; border:1px solid #e0e0e0;"></div>
+                <div class="color-dot" onclick="setDefaultColor('blue')" style="background:#e3f2fd; border:1px solid #bbdefb;"></div>
+                <div class="color-dot" onclick="setDefaultColor('pink')" style="background:#fce4ec; border:1px solid #f8bbd0;"></div>
+                <div class="color-dot" onclick="setDefaultColor('dark')" style="background:#333; border:1px solid #555;"></div>
+            </div>
+        </div>
+
+        <div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:5px; font-size:12px; color:#888;">
+                <span>初始尺寸</span>
+                <span id="default-scale-val" style="color:#333; font-weight:bold;">1.0x</span>
+            </div>
+            <input type="range" min="0.8" max="1.5" step="0.1" value="1" onchange="setDefaultScale(this.value)" style="width:100%; cursor:pointer;">
+        </div>
+    </div>
+
+    <style>
+        #global-settings-panel {
+            position: fixed;
+            bottom: 90px;
+            left: 50%; /* Center horizontally first */
+            transform: translateX(-160px) translateY(10px); /* Adjust X to align with button, Y for anim */
+            width: 200px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            padding: 15px;
+            border-radius: 18px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.15), 0 0 0 1px rgba(0,0,0,0.05);
+            display: none;
+            z-index: 1001;
+            flex-direction: column;
+            opacity: 0;
+            transition: opacity 0.2s, transform 0.2s;
+        }
+
+        #global-settings-panel.active {
+            display: flex;
+            opacity: 1;
+            transform: translateX(-160px) translateY(0);
+        }
+
+        .panel-arrow {
+            position: absolute;
+            bottom: -6px;
+            left: 50%;
+            margin-left: -6px;
+            width: 12px;
+            height: 12px;
+            background: rgba(255, 255, 255, 0.95);
+            transform: rotate(45deg);
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+            border-right: 1px solid rgba(0,0,0,0.05);
+        }
+
+        .color-dot {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .color-dot:hover {
+            transform: scale(1.1);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+    </style>
+
+    <!-- Settings & Tools Modal -->
+    <div id="settings-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:2001; align-items:center; justify-content:center; backdrop-filter:blur(2px);">
+        <div style="background:white; padding:25px; border-radius:20px; width:450px; max-width:90%; box-shadow:0 10px 30px rgba(0,0,0,0.2);">
+            <h3 style="margin-bottom:15px; border-bottom:1px solid #eee; padding-bottom:10px;">设置与工具</h3>
+            
+            <div style="margin-bottom:20px;">
+                <h4 style="margin-bottom:10px; color:#555;">🖼 镜框样式</h4>
+                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <button onclick="setFrame('frame-gold')" style="background:#d4af37; padding:5px 10px; font-size:12px;">土豪金</button>
+                    <button onclick="setFrame('frame-silver')" style="background:#c0c0c0; padding:5px 10px; font-size:12px;">科技银</button>
+                    <button onclick="setFrame('frame-wood')" style="background:#8b4513; padding:5px 10px; font-size:12px;">复古木</button>
+                    <button onclick="setFrame('frame-neon')" style="background:#000; color:#0ff; border:1px solid #0ff; padding:5px 10px; font-size:12px;">赛博朋克</button>
+                    <button onclick="setFrame('frame-none')" style="background:#eee; color:#333; padding:5px 10px; font-size:12px;">无边框</button>
+                </div>
+            </div>
+
+            <div style="margin-bottom:20px;">
+                <h4 style="margin-bottom:10px; color:#555;">📸 截图与录制</h4>
+                <div style="display:flex; gap:10px;">
+                    <button onclick="captureScreen()" style="background:#FF9500;">📸 网页截图</button>
+                    <button id="btn-record" onclick="toggleRecord()" style="background:#FF3B30;">🔴 开始录制</button>
+                </div>
+                <p style="font-size:12px; color:#999; margin-top:5px;">* 将调用浏览器原生屏幕分享功能进行截取</p>
+            </div>
+
+            <div style="text-align:right;">
+                <button class="secondary" onclick="document.getElementById('settings-overlay').style.display='none'">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Batch Import Modal -->
+    <div id="modal-overlay">
+        <div id="modal-content">
+            <h3>批量导入便签</h3>
+            <p style="font-size: 14px; color: #666;">每行文本将生成一个独立便签，自动分布在四周。</p>
+            <textarea id="batch-input" placeholder="输入内容，回车换行..."></textarea>
+            <div class="modal-actions">
+                <button class="secondary" onclick="closeBatchModal()">取消</button>
+                <button onclick="processBatchImport()">导入</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Media Guide Tooltip -->
+    <div id="media-guide" style="position:fixed; top:20px; left:50%; transform:translateX(-50%); background:#333; color:white; padding:10px 20px; border-radius:30px; z-index:2002; display:none; box-shadow:0 5px 15px rgba(0,0,0,0.3); font-size:14px; animation:fadeIn 0.3s;">
+        👆 请在弹窗中选择【此标签页 (This Tab)】以录制当前画面
+    </div>
+
+    <!-- Notes Container (Notes will be appended to body directly for absolute positioning) -->
+    
+    <style>
+        @keyframes fadeIn { from { opacity: 0; transform: translate(-50%, -10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+    </style>
+    
+    <!-- html2canvas for screenshots -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <script>
+        // State
+        let stream = null;
+        let notes = [];
+        let isCameraOn = false;
+
+        // Elements
+        const video = document.getElementById('mirror');
+        const btnCamera = document.getElementById('btn-camera');
+
+        // Init
+        window.addEventListener('DOMContentLoaded', () => {
+            loadNotes();
+        });
+
+        // Global Click Listener for Settings
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.note-settings') && !e.target.closest('.note-btn[title="设置"]')) {
+                document.querySelectorAll('.note-settings.active').forEach(el => el.classList.remove('active'));
+            }
+            // Close Global Settings Panel
+            const panel = document.getElementById('global-settings-panel');
+            if (panel.classList.contains('active') && !e.target.closest('#global-settings-panel') && !e.target.closest('button[onclick="toggleGlobalSettings()"]')) {
+                panel.classList.remove('active');
+                setTimeout(() => panel.style.display = 'none', 200); // Wait for anim
+            }
+        });
+
+        // Global Defaults Logic
+        let defaultNoteStyle = {
+            bg: "#fff9c4",
+            color: "#333333",
+            fontSize: 16,
+            radius: 8
+        };
+        let defaultNoteScale = 1;
+
+        // Load Defaults
+        const savedDefaultStyle = localStorage.getItem('defaultNoteStyle');
+        if (savedDefaultStyle) defaultNoteStyle = JSON.parse(savedDefaultStyle);
+        const savedDefaultScale = localStorage.getItem('defaultNoteScale');
+        if (savedDefaultScale) defaultNoteScale = parseFloat(savedDefaultScale);
+
+        function toggleGlobalSettings() {
+            const panel = document.getElementById('global-settings-panel');
+            if (panel.classList.contains('active')) {
+                panel.classList.remove('active');
+                setTimeout(() => panel.style.display = 'none', 200);
+            } else {
+                panel.style.display = 'flex';
+                // Trigger reflow
+                panel.offsetHeight;
+                panel.classList.add('active');
+                // Update UI
+                document.querySelector('#global-settings-panel input[type="range"]').value = defaultNoteScale;
+                document.getElementById('default-scale-val').innerText = defaultNoteScale + "x";
+            }
+        }
+
+        function setDefaultColor(type) {
+            const presets = {
+                'classic': { bg: '#fff9c4', color: '#333333' },
+                'blue': { bg: '#e3f2fd', color: '#0d47a1' },
+                'pink': { bg: '#fce4ec', color: '#880e4f' },
+                'dark': { bg: '#333333', color: '#ffffff' }
+            };
+            const p = presets[type];
+            if (p) {
+                defaultNoteStyle.bg = p.bg;
+                defaultNoteStyle.color = p.color;
+                localStorage.setItem('defaultNoteStyle', JSON.stringify(defaultNoteStyle));
+                // Auto close
+                toggleGlobalSettings();
+            }
+        }
+
+        function setDefaultScale(val) {
+            defaultNoteScale = parseFloat(val);
+            document.getElementById('default-scale-val').innerText = defaultNoteScale + "x";
+            localStorage.setItem('defaultNoteScale', defaultNoteScale);
+        }
+
+        // Centralized Delete Logic
+        function confirmAndDelete(element, deleteCallback) {
+            const hasConfirmed = localStorage.getItem('hasConfirmedDelete');
+            
+            if (hasConfirmed === 'true') {
+                deleteCallback();
+            } else {
+                if (confirm('💡 提示：双击或点击删除按钮可以快速删除。\n\n点击【确定】删除（以后将不再提示）。\n点击【取消】保留。')) {
+                    deleteCallback();
+                    localStorage.setItem('hasConfirmedDelete', 'true');
+                }
+            }
+        }
+
+        // Zoom Logic
+        function handleZoom(e, element, isNote = false) {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -0.1 : 0.1;
+            
+            // Get current scale
+            let currentScale = parseFloat(element.getAttribute('data-scale')) || 1;
+            let newScale = Math.max(0.5, Math.min(3, currentScale + delta));
+            
+            element.style.transform = `scale(${newScale})`;
+            element.setAttribute('data-scale', newScale);
+
+            if (isNote) {
+                const id = element.id;
+                const note = notes.find(n => n.id === id);
+                if (note) {
+                    note.scale = newScale;
+                    saveNotes();
+                }
+            }
+        }
+
+        // Drawing Logic
+        const canvas = document.getElementById('drawing-canvas');
+        const ctx = canvas.getContext('2d');
+        let isDrawing = false;
+        let isDrawingMode = false;
+
+        function resizeCanvas() {
+            const container = document.getElementById('mirror-container');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        setTimeout(resizeCanvas, 100);
+
+        function toggleDrawing() {
+            isDrawingMode = !isDrawingMode;
+            const btn = document.getElementById('btn-draw');
+            const clearBtn = document.getElementById('btn-clear-draw');
+            
+            if (isDrawingMode) {
+                canvas.classList.add('active');
+                canvas.style.pointerEvents = 'auto'; 
+                // Bring canvas to front (above notes/images)
+                canvas.style.zIndex = 50; 
+                
+                btn.style.background = '#007AFF';
+                btn.innerHTML = '✏ 停止';
+                clearBtn.style.display = 'block';
+            } else {
+                canvas.classList.remove('active');
+                canvas.style.pointerEvents = 'none'; 
+                // Reset z-index
+                canvas.style.zIndex = 5; 
+                
+                btn.style.background = '#333';
+                btn.innerHTML = '✏ 涂鸦';
+                clearBtn.style.display = 'none';
+            }
+        }
+
+        function clearDrawing() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        canvas.addEventListener('mousedown', startDraw);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDraw);
+        canvas.addEventListener('mouseout', stopDraw);
+
+        canvas.addEventListener('touchstart', (e) => {
+            if (!isDrawingMode) return;
+            e.preventDefault();
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            startDraw({ offsetX: touch.clientX - rect.left, offsetY: touch.clientY - rect.top });
+        }, { passive: false });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (!isDrawingMode) return;
+            e.preventDefault();
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            draw({ offsetX: touch.clientX - rect.left, offsetY: touch.clientY - rect.top });
+        }, { passive: false });
+
+        canvas.addEventListener('touchend', stopDraw);
+
+        function startDraw(e) {
+            if (!isDrawingMode) return;
+            isDrawing = true;
+            ctx.beginPath();
+            ctx.moveTo(e.offsetX, e.offsetY);
+            ctx.strokeStyle = '#FF3B30';
+            ctx.lineWidth = 4;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+        }
+
+        function draw(e) {
+            if (!isDrawing || !isDrawingMode) return;
+            ctx.lineTo(e.offsetX, e.offsetY);
+            ctx.stroke();
+        }
+
+        function stopDraw() {
+            isDrawing = false;
+        }
+
+        // Image Logic
+        function handleAddImage(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    createFloatingImage(e.target.result);
+                }
+                reader.readAsDataURL(input.files[0]);
+                input.value = ''; 
+            }
+        }
+
+        function createFloatingImage(src) {
+            const div = document.createElement('div');
+            div.className = 'floating-image';
+            div.style.left = (100 + Math.random() * 200) + 'px';
+            div.style.top = (100 + Math.random() * 200) + 'px';
+            div.setAttribute('data-scale', 1);
+
+            const img = document.createElement('img');
+            img.src = src;
+            img.style.width = '100%';
+            img.style.height = '100%';
+            img.style.borderRadius = '8px';
+            img.style.pointerEvents = 'none'; 
+
+            const delBtn = document.createElement('div');
+            delBtn.className = 'delete-float-btn';
+            delBtn.innerHTML = '×';
+            delBtn.onclick = function(e) { 
+                e.stopPropagation();
+                confirmAndDelete(div, () => div.remove());
+            };
+
+            div.appendChild(img);
+            div.appendChild(delBtn);
+            
+            // Drag
+            div.addEventListener('mousedown', (e) => {
+                if (e.target.className === 'delete-float-btn') return;
+                startDrag(e, div);
+            });
+
+            // Double click delete
+            div.addEventListener('dblclick', () => {
+                confirmAndDelete(div, () => div.remove());
+            });
+
+            // Scroll Zoom
+            div.addEventListener('wheel', (e) => handleZoom(e, div, false));
+
+            document.body.appendChild(div);
+        }
+
+        // Camera Logic
+        async function toggleCamera() {
+            if (isCameraOn) {
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                    stream = null;
+                }
+                video.srcObject = null;
+                video.classList.remove('active');
+                btnCamera.innerHTML = "📷 开启/关闭";
+                btnCamera.classList.remove('secondary');
+                isCameraOn = false;
+            } else {
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    video.srcObject = stream;
+                    video.play();
+                    video.classList.add('active');
+                    btnCamera.innerHTML = "🚫 关闭摄像头";
+                    btnCamera.classList.add('secondary');
+                    isCameraOn = true;
+                } catch (err) {
+                    alert("无法访问摄像头: " + err.message);
+                }
+            }
+        }
+
+        // Note Logic
+        function addNote(data = null) {
+            const id = data ? data.id : Date.now().toString();
+            // Use defaults for new notes
+            const noteData = data || {
+                id: id,
+                x: 100 + (notes.length * 20),
+                y: 100 + (notes.length * 20),
+                scale: defaultNoteScale,
+                content: "", // Empty by default
+                style: { ...defaultNoteStyle } // Copy default style
+            };
+
+            if (!data) {
+                notes.push(noteData);
+                saveNotes();
+            }
+
+            // Create DOM
+            const el = document.createElement('div');
+            el.className = 'note';
+            el.id = id;
+            el.style.left = noteData.x + 'px';
+            el.style.top = noteData.y + 'px';
+            el.setAttribute('data-scale', noteData.scale || 1);
+            el.style.transform = `scale(${noteData.scale || 1})`;
+            
+            // Added delete-float-btn, removed old delete-btn
+            el.innerHTML = `
+                <div class="delete-float-btn" onclick="confirmAndDelete(this.parentElement, () => deleteNote('${id}'))">×</div>
+                <div class="note-header">
+                    <button class="note-btn" onclick="toggleSettings('${id}')" title="设置">⚙</button>
+                </div>
+                <div class="note-content" contenteditable="true" oninput="updateContent('${id}', this)">${noteData.content}</div>
+                <div class="note-settings">
+                    <div class="setting-row" style="justify-content: space-between; margin-bottom: 5px;">
+                        <button class="note-btn" onclick="applyPreset('${id}', 'classic')" style="width:20px;height:20px;background:#fff9c4;" title="经典黄"></button>
+                        <button class="note-btn" onclick="applyPreset('${id}', 'blue')" style="width:20px;height:20px;background:#e3f2fd;" title="天空蓝"></button>
+                        <button class="note-btn" onclick="applyPreset('${id}', 'pink')" style="width:20px;height:20px;background:#fce4ec;" title="樱花粉"></button>
+                        <button class="note-btn" onclick="applyPreset('${id}', 'dark')" style="width:20px;height:20px;background:#333;color:#fff;border:1px solid #555;" title="暗夜黑"></button>
+                    </div>
+                </div>
+            `;
+            
+            applyNoteStyle(el, noteData.style);
+
+            const header = el.querySelector('.note-header');
+            header.addEventListener('mousedown', (e) => startDrag(e, el));
+
+            // Double click to delete (Smart Check)
+            el.addEventListener('dblclick', (e) => {
+                // If text is selected, do NOT delete (allow selection behavior)
+                const selection = window.getSelection();
+                if (selection.toString().length > 0) {
+                    return; 
+                }
+                
+                // If user is just clicking around to edit, we usually don't want to delete.
+                // But user explicitly requested "Double click anywhere to close".
+                // The selection check handles the "selecting a word" case.
+                // If they double click empty space, it deletes.
+                confirmAndDelete(el, () => deleteNote(id));
+            });
+
+            // Scroll Zoom
+            el.addEventListener('wheel', (e) => handleZoom(e, el, true));
+
+            document.body.appendChild(el);
+        }
+
+        function deleteNote(id) {
+            const el = document.getElementById(id);
+            if (el) el.remove();
+            notes = notes.filter(n => n.id !== id);
+            saveNotes();
+        }
+
+        function updateContent(id, el) {
+            const note = notes.find(n => n.id === id);
+            if (note) {
+                note.content = el.innerHTML;
+                saveNotes();
+            }
+        }
+
+        function toggleSettings(id) {
+            // Close other settings first
+            document.querySelectorAll('.note-settings.active').forEach(el => {
+                if (el.parentElement.id !== id) el.classList.remove('active');
+            });
+            const el = document.getElementById(id);
+            const settings = el.querySelector('.note-settings');
+            settings.classList.toggle('active');
+        }
+
+        function applyPreset(id, type) {
+            const note = notes.find(n => n.id === id);
+            if (!note) return;
+
+            const presets = {
+                'classic': { bg: '#fff9c4', color: '#333333' },
+                'blue': { bg: '#e3f2fd', color: '#0d47a1' },
+                'pink': { bg: '#fce4ec', color: '#880e4f' },
+                'dark': { bg: '#333333', color: '#ffffff' }
+            };
+
+            const preset = presets[type];
+            if (preset) {
+                note.style.bg = preset.bg;
+                note.style.color = preset.color;
+                
+                // Close settings after selection
+                const el = document.getElementById(id);
+                if (el) {
+                    const settings = el.querySelector('.note-settings');
+                    settings.classList.remove('active');
+                }
+                
+                applyNoteStyle(el, note.style);
+                saveNotes();
+            }
+        }
+
+        function applyNoteStyle(el, style) {
+            if (!el) return;
+            el.style.backgroundColor = style.bg;
+            el.style.color = style.color;
+            el.style.borderRadius = style.radius + 'px';
+            const content = el.querySelector('.note-content');
+            if (content) {
+                content.style.fontSize = style.fontSize + 'px';
+            }
+        }
+
+        // Organize Logic
+        function organizeNotes() {
+            if (notes.length === 0) return;
+
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            const noteWidth = 220; 
+            const noteHeight = 170;
+            const margin = 20;
+
+            const safeXStart = w * 0.15;
+            const safeXEnd = w * 0.85;
+            const safeYStart = h * 0.15;
+            const safeYEnd = h * 0.85;
+
+            notes.forEach((note, index) => {
+                const zone = index % 4; 
+                let x, y;
+
+                switch(zone) {
+                    case 0: // Top
+                        x = margin + (Math.random() * (w - noteWidth - margin * 2));
+                        y = margin + (Math.random() * (safeYStart - noteHeight - margin));
+                        break;
+                    case 1: // Right
+                        x = safeXEnd + (Math.random() * (w - safeXEnd - noteWidth - margin));
+                        y = margin + (Math.random() * (h - noteHeight - margin));
+                        break;
+                    case 2: // Bottom
+                        x = margin + (Math.random() * (w - noteWidth - margin * 2));
+                        y = safeYEnd + (Math.random() * (h - safeYEnd - noteHeight - margin));
+                        break;
+                    case 3: // Left
+                        x = margin + (Math.random() * (safeXStart - noteWidth - margin));
+                        y = margin + (Math.random() * (h - noteHeight - margin));
+                        break;
+                }
+
+                x = Math.max(10, Math.min(x, w - noteWidth - 10));
+                y = Math.max(10, Math.min(y, h - noteHeight - 10));
+
+                note.x = x;
+                note.y = y;
+                
+                const el = document.getElementById(note.id);
+                if (el) {
+                    el.style.left = x + 'px';
+                    el.style.top = y + 'px';
+                }
+            });
+            saveNotes();
+        }
+
+        function setFrame(frameClass) {
+            const container = document.getElementById('mirror-container');
+            container.classList.remove('frame-gold', 'frame-silver', 'frame-wood', 'frame-neon', 'frame-none');
+            container.classList.add(frameClass);
+            localStorage.setItem('mirror_frame', frameClass);
+        }
+
+        const savedFrame = localStorage.getItem('mirror_frame');
+        if (savedFrame) {
+            setFrame(savedFrame);
+            const select = document.querySelector('#frame-selector select');
+            if (select) select.value = savedFrame;
+        }
+
+        // Media Logic (Screenshot & Recording)
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let recordingStream = null;
+        let compositionInterval = null;
+
+        // Helper: Wrap text for Canvas
+        function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+            const paragraphs = text.split('\n');
+            let cursorY = y;
+
+            paragraphs.forEach(paragraph => {
+                let line = '';
+                const words = paragraph.split(''); // Split by char for better wrapping support
+                
+                for(let n = 0; n < words.length; n++) {
+                    const testLine = line + words[n];
+                    const metrics = ctx.measureText(testLine);
+                    const testWidth = metrics.width;
+                    if (testWidth > maxWidth && n > 0) {
+                        ctx.fillText(line, x, cursorY);
+                        line = words[n];
+                        cursorY += lineHeight;
+                    } else {
+                        line = testLine;
+                    }
+                }
+                ctx.fillText(line, x, cursorY);
+                cursorY += lineHeight;
+            });
+        }
+
+        async function captureScreen() {
+            // Hide controls for cleaner screenshot
+            const controls = document.getElementById('controls');
+            const selector = document.getElementById('frame-selector');
+            const guide = document.getElementById('media-guide');
+            const settings = document.getElementById('global-settings-panel');
+            const mirrorContainer = document.getElementById('mirror-container');
+            const steamOverlay = document.getElementById('steam-overlay');
+            
+            // Save original styles
+            const originalDisplay = {
+                controls: controls.style.display,
+                selector: selector.style.display,
+                guide: guide ? guide.style.display : 'none',
+                settings: settings ? settings.style.display : 'none',
+                containerBg: mirrorContainer.style.backgroundColor,
+                bodyBg: document.body.style.backgroundColor,
+                steamDisplay: steamOverlay ? steamOverlay.style.display : 'block'
+            };
+
+            // Hide UI
+            controls.style.display = 'none';
+            selector.style.display = 'none';
+            if(guide) guide.style.display = 'none';
+            if(settings) settings.style.display = 'none';
+
+            // IMPORTANT: Make EVERYTHING transparent so html2canvas captures ONLY the overlay elements (notes/images)
+            // The video will be drawn manually on the bottom layer
+            if (isCameraOn) {
+                mirrorContainer.style.backgroundColor = 'transparent';
+                document.body.style.backgroundColor = 'transparent'; 
+                // We also hide the steam overlay from DOM capture to prevent double rendering or occlusion
+                // We will draw it manually if needed, or just let it be captured if it's transparent.
+                // Actually, let's HIDE it from html2canvas and draw it manually to be safe.
+                if(steamOverlay) steamOverlay.style.display = 'none';
+            }
+
+            // 1. Prepare Base Canvas (Video)
+            const baseCanvas = document.createElement('canvas');
+            baseCanvas.width = window.innerWidth;
+            baseCanvas.height = window.innerHeight;
+            const ctx = baseCanvas.getContext('2d');
+
+            // Draw Video (if active)
+            if (isCameraOn && video.srcObject) {
+                ctx.save();
+                ctx.scale(-1, 1); // Mirror flip
+                ctx.drawImage(video, -baseCanvas.width, 0, baseCanvas.width, baseCanvas.height);
+                ctx.restore();
+                
+                // Draw Steam Overlay Manually (to ensure it sits on top of video but below notes)
+                // The steam overlay is a radial gradient.
+                // background: radial-gradient(circle at center, transparent 30%, rgba(255,255,255,0.4) 80%, rgba(255,255,255,0.8) 100%);
+                // mix-blend-mode: overlay; opacity: 0.6;
+                ctx.save();
+                ctx.globalCompositeOperation = 'overlay';
+                ctx.globalAlpha = 0.6;
+                const grad = ctx.createRadialGradient(
+                    baseCanvas.width/2, baseCanvas.height/2, baseCanvas.width * 0.15, // Inner circle (approx 30% of radius?)
+                    baseCanvas.width/2, baseCanvas.height/2, baseCanvas.width * 0.7  // Outer circle
+                );
+                grad.addColorStop(0, 'transparent');
+                grad.addColorStop(0.8, 'rgba(255,255,255,0.4)');
+                grad.addColorStop(1, 'rgba(255,255,255,0.8)');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
+                ctx.restore();
+
+            } else {
+                ctx.fillStyle = "#e0e0e0";
+                ctx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
+            }
+
+            // 2. Capture DOM Overlays (Notes, Images, Drawings, Frame)
+            try {
+                const overlayCanvas = await html2canvas(document.body, {
+                    backgroundColor: null, // Transparent
+                    scale: 1, // Match screen pixels
+                    logging: false,
+                    ignoreElements: (element) => {
+                        // Ignore video element itself (we drew it manually)
+                        // Ignore controls (already hidden)
+                        if (element.tagName === 'VIDEO') return true;
+                        if (element.id === 'controls') return true;
+                        return false;
+                    }
+                });
+
+                // 3. Composite
+                ctx.drawImage(overlayCanvas, 0, 0);
+
+                // 4. Save
+                const url = baseCanvas.toDataURL('image/png');
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `mirror_screenshot_${Date.now()}.png`;
+                a.click();
+
+            } catch (err) {
+                console.error("Screenshot failed:", err);
+                alert("截图失败: " + err.message);
+            } finally {
+                // Restore UI
+                controls.style.display = originalDisplay.controls;
+                selector.style.display = originalDisplay.selector;
+                if(guide) guide.style.display = originalDisplay.guide;
+                if(settings) settings.style.display = originalDisplay.settings;
+                mirrorContainer.style.backgroundColor = originalDisplay.containerBg;
+                document.body.style.backgroundColor = originalDisplay.bodyBg;
+                if(steamOverlay) steamOverlay.style.display = originalDisplay.steamDisplay;
+            }
+        }
+
+        async function toggleRecord() {
+            const btn = document.getElementById('btn-record');
+            
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                // STOP Recording
+                mediaRecorder.stop();
+                clearInterval(compositionInterval);
+                btn.innerHTML = "🔴";
+                btn.style.background = "#FF3B30";
+                
+                // Show controls again? They weren't hidden, but good to ensure state
+            } else {
+                // START Recording
+                
+                // 1. Setup Composition Canvas
+                const recCanvas = document.createElement('canvas');
+                recCanvas.width = window.innerWidth;
+                recCanvas.height = window.innerHeight;
+                const ctx = recCanvas.getContext('2d');
+                const drawingCanvas = document.getElementById('drawing-canvas');
+
+                // 2. Start Composition Loop (30 FPS)
+                compositionInterval = setInterval(() => {
+                    // Clear
+                    ctx.clearRect(0, 0, recCanvas.width, recCanvas.height);
+
+                    // A. Draw Video
+                    if (isCameraOn && video.srcObject) {
+                        ctx.save();
+                        ctx.scale(-1, 1);
+                        ctx.drawImage(video, -recCanvas.width, 0, recCanvas.width, recCanvas.height);
+                        ctx.restore();
+                    } else {
+                        ctx.fillStyle = "#e0e0e0";
+                        ctx.fillRect(0, 0, recCanvas.width, recCanvas.height);
+                    }
+
+                    // B. Draw Frame (Simple Border Approximation)
+                    // (Optional: extracting frame styles is hard, maybe skip or draw simple border)
+                    // Let's skip complex frame styles for performance, or just draw the active frame color
+                    // const frameClass = localStorage.getItem('mirror_frame') || 'frame-gold';
+                    // (Frame rendering is complex, focusing on content first)
+
+                    // C. Draw Drawing Canvas
+                    ctx.drawImage(drawingCanvas, 0, 0);
+
+                    // D. Draw Images (Iterate DOM)
+                    const imgs = document.querySelectorAll('.floating-image');
+                    imgs.forEach(div => {
+                        const img = div.querySelector('img');
+                        const rect = div.getBoundingClientRect();
+                        const scale = parseFloat(div.getAttribute('data-scale')) || 1;
+                        
+                        // Need to account for transforms which getBoundingClientRect handles,
+                        // but drawing image needs raw logic or parsed matrix.
+                        // Simplified: Use rect x/y/w/h
+                        if (img) {
+                            ctx.drawImage(img, rect.left, rect.top, rect.width, rect.height);
+                        }
+                    });
+
+                    // E. Draw Notes (Iterate Data)
+                    notes.forEach(note => {
+                        // Get current DOM position (in case it moved but not saved yet?)
+                        // Data is single source of truth for position
+                        
+                        // We need to match the CSS styling
+                        ctx.save();
+                        
+                        // Shadow
+                        ctx.shadowColor = "rgba(0,0,0,0.2)";
+                        ctx.shadowBlur = 10;
+                        ctx.shadowOffsetY = 4;
+
+                        // Background
+                        ctx.fillStyle = note.style.bg;
+                        const w = 220 * (note.scale || 1); // Approx width from CSS
+                        // Height is variable... difficult.
+                        // Let's assume a reasonable height or calculate from text?
+                        // This is the hard part of "Fake DOM Recording".
+                        // We'll use a fixed approximate height or 170 scaled.
+                        const h = 170 * (note.scale || 1); 
+
+                        // Rounded Rect
+                        const r = (note.style.radius || 8) * (note.scale || 1);
+                        ctx.beginPath();
+                        ctx.roundRect(note.x, note.y, w, h, r);
+                        ctx.fill();
+
+                        // Text
+                        ctx.shadowColor = "transparent"; // No shadow for text
+                        ctx.fillStyle = note.style.color;
+                        ctx.font = `${(note.style.fontSize || 16) * (note.scale || 1)}px 'Segoe UI', sans-serif`;
+                        
+                        // Padding
+                        const pad = 15 * (note.scale || 1);
+                        wrapText(ctx, note.content || "", note.x + pad, note.y + pad + (16 * (note.scale || 1)), w - (pad*2), (24 * (note.scale || 1)));
+
+                        ctx.restore();
+                    });
+
+                }, 1000 / 30); // 30 FPS
+
+                // 3. Create Stream from Canvas
+                recordingStream = recCanvas.captureStream(30);
+
+                // 4. Start MediaRecorder
+                mediaRecorder = new MediaRecorder(recordingStream, {
+                    mimeType: 'video/webm;codecs=vp9'
+                });
+                recordedChunks = [];
+
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) recordedChunks.push(e.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `mirror_video_${Date.now()}.webm`;
+                    a.click();
+                };
+
+                mediaRecorder.start();
+                btn.innerHTML = "⏹";
+                btn.style.background = "#333";
+            }
+        }
+
+        // Drag Logic
+        let dragItem = null;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
+
+        function startDrag(e, item) {
+            if (e.target.closest('button')) return;
+            
+            dragItem = item || e.target.closest('.note');
+            if (!dragItem) return;
+
+            const rect = dragItem.getBoundingClientRect();
+            // Adjust for scale if needed, but for simple absolute positioning, clientX works
+            // However, with transform: scale, drag might be offset. 
+            // For now, let's keep it simple. If scaling issues occur, we need more complex math.
+            dragOffsetX = e.clientX - rect.left;
+            dragOffsetY = e.clientY - rect.top;
+            
+            dragItem.classList.add('dragging');
+            bringToFront(dragItem);
+
+            document.addEventListener('mousemove', onDrag);
+            document.addEventListener('mouseup', stopDrag);
+        }
+
+        function onDrag(e) {
+            if (!dragItem) return;
+            
+            let x = e.clientX - dragOffsetX;
+            let y = e.clientY - dragOffsetY;
+            
+            // Boundary checks
+            const maxX = window.innerWidth - 50;
+            const maxY = window.innerHeight - 50;
+            
+            x = Math.max(-50, Math.min(x, maxX));
+            y = Math.max(-50, Math.min(y, maxY));
+            
+            dragItem.style.left = x + 'px';
+            dragItem.style.top = y + 'px';
+        }
+
+        function stopDrag() {
+            if (dragItem) {
+                if (dragItem.classList.contains('note')) {
+                    const id = dragItem.id;
+                    const note = notes.find(n => n.id === id);
+                    if (note) {
+                        note.x = parseInt(dragItem.style.left);
+                        note.y = parseInt(dragItem.style.top);
+                        saveNotes();
+                    }
+                }
+                dragItem.classList.remove('dragging');
+                dragItem = null;
+            }
+            document.removeEventListener('mousemove', onDrag);
+            document.removeEventListener('mouseup', stopDrag);
+        }
+
+        function bringToFront(el) {
+            document.querySelectorAll('.note, .floating-image').forEach(n => n.style.zIndex = '10');
+            el.style.zIndex = '20';
+        }
+
+        // Storage Logic
+        function saveNotes() {
+            sessionStorage.setItem('mirror_notes', JSON.stringify(notes));
+        }
+
+        function loadNotes() {
+            const data = sessionStorage.getItem('mirror_notes');
+            if (data) {
+                try {
+                    notes = JSON.parse(data);
+                    notes.forEach(note => addNote(note));
+                } catch (e) {
+                    console.error("Failed to load notes", e);
+                }
+            }
+        }
+
+        // Batch Import
+        function openBatchModal() {
+            document.getElementById('modal-overlay').style.display = 'flex';
+            document.getElementById('batch-input').focus();
+        }
+
+        function closeBatchModal() {
+            document.getElementById('modal-overlay').style.display = 'none';
+            document.getElementById('batch-input').value = '';
+        }
+
+        function processBatchImport() {
+            const text = document.getElementById('batch-input').value;
+            if (!text.trim()) {
+                closeBatchModal();
+                return;
+            }
+
+            const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+            
+            lines.forEach(content => {
+                const zone = Math.floor(Math.random() * 4);
+                let x, y;
+                const margin = 20;
+                const noteWidth = 220;
+                const noteHeight = 170;
+                const w = window.innerWidth;
+                const h = window.innerHeight;
+                const safeXStart = w * 0.2;
+                const safeXEnd = w * 0.8;
+                const safeYStart = h * 0.2;
+                const safeYEnd = h * 0.8;
+
+                switch(zone) {
+                    case 0: x = Math.random() * (w - noteWidth); y = Math.random() * (safeYStart - noteHeight - margin); break;
+                    case 1: x = safeXEnd + Math.random() * (w - safeXEnd - noteWidth - margin); y = Math.random() * (h - noteHeight); break;
+                    case 2: x = Math.random() * (w - noteWidth); y = safeYEnd + Math.random() * (h - safeYEnd - noteHeight - margin); break;
+                    case 3: x = Math.random() * (safeXStart - noteWidth - margin); y = Math.random() * (h - noteHeight); break;
+                }
+
+                x = Math.max(10, Math.min(x, w - noteWidth - 10));
+                y = Math.max(10, Math.min(y, h - noteHeight - 10));
+
+                addNote({
+                    id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                    x: x,
+                    y: y,
+                    content: content,
+                    style: { bg: "#fff9c4", color: "#333333", fontSize: 16, radius: 8 }
+                });
+            });
+
+            closeBatchModal();
+        }
+    </script>
+</body>
+</html>
