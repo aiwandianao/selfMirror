@@ -1118,92 +1118,118 @@
             });
         }
 
-        async function captureScreen() {
-            // Hide controls for cleaner screenshot
+                async function captureScreen() {
+            const mirrorContainer = document.getElementById('mirror-container');
+            const video = document.getElementById('mirror');
+            const steamOverlay = document.getElementById('steam-overlay');
             const controls = document.getElementById('controls');
             const selector = document.getElementById('frame-selector');
             const guide = document.getElementById('media-guide');
             const settings = document.getElementById('global-settings-panel');
-            const mirrorContainer = document.getElementById('mirror-container');
-            const steamOverlay = document.getElementById('steam-overlay');
-            const video = document.getElementById('mirror');
             
-            // Save original styles
+            // 1. Save original styles & Hide UI
             const originalDisplay = {
                 controls: controls.style.display,
                 selector: selector.style.display,
                 guide: guide ? guide.style.display : 'none',
                 settings: settings ? settings.style.display : 'none',
-                containerBg: mirrorContainer.style.backgroundColor,
-                bodyBg: document.body.style.backgroundColor,
+                videoDisplay: video.style.display,
                 steamDisplay: steamOverlay ? steamOverlay.style.display : 'block',
-                videoDisplay: video.style.display
+                containerBg: mirrorContainer.style.backgroundColor
             };
 
-            // Hide UI
             controls.style.display = 'none';
             selector.style.display = 'none';
             if(guide) guide.style.display = 'none';
             if(settings) settings.style.display = 'none';
 
-            // 1. Prepare Base Canvas
-            const baseCanvas = document.createElement('canvas');
-            baseCanvas.width = window.innerWidth;
-            baseCanvas.height = window.innerHeight;
-            const ctx = baseCanvas.getContext('2d');
-
-            // 2. Draw Background Layer
-            if (isCameraOn && video.srcObject) {
-                // Camera is on - draw video frame
-                ctx.save();
-                ctx.scale(-1, 1); // Mirror flip
-                ctx.drawImage(video, -baseCanvas.width, 0, baseCanvas.width, baseCanvas.height);
-                ctx.restore();
-                
-                // Draw Steam Overlay if it exists
-                if (steamOverlay) {
-                    ctx.save();
-                    ctx.globalCompositeOperation = 'overlay';
-                    ctx.globalAlpha = 0.6;
-                    const grad = ctx.createRadialGradient(
-                        baseCanvas.width/2, baseCanvas.height/2, baseCanvas.width * 0.15,
-                        baseCanvas.width/2, baseCanvas.height/2, baseCanvas.width * 0.7
-                    );
-                    grad.addColorStop(0, 'transparent');
-                    grad.addColorStop(0.8, 'rgba(255,255,255,0.4)');
-                    grad.addColorStop(1, 'rgba(255,255,255,0.8)');
-                    ctx.fillStyle = grad;
-                    ctx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
-                    ctx.restore();
-                }
-            } else {
-                // Camera is off - draw container background
-                ctx.fillStyle = "#e0e0e0";
-                ctx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
-            }
-
-            // 3. Capture and overlay DOM elements (notes, images, drawings, frame)
             try {
-                // Temporarily hide the video element to prevent double capture
+                // 2. Get Geometry
+                const rect = mirrorContainer.getBoundingClientRect();
+                const computedStyle = window.getComputedStyle(mirrorContainer);
+                const borderLeft = parseFloat(computedStyle.borderLeftWidth);
+                const borderTop = parseFloat(computedStyle.borderTopWidth);
+                const borderRight = parseFloat(computedStyle.borderRightWidth);
+                const borderBottom = parseFloat(computedStyle.borderBottomWidth);
+
+                // 3. Create Final Canvas (Size of the Mirror Container)
+                const finalCanvas = document.createElement('canvas');
+                finalCanvas.width = rect.width;
+                finalCanvas.height = rect.height;
+                const ctx = finalCanvas.getContext('2d');
+
+                // 4. Draw Video Layer (Inside the border)
+                // Video fills the content box of the container
+                const contentX = borderLeft;
+                const contentY = borderTop;
+                const contentW = rect.width - borderLeft - borderRight;
+                const contentH = rect.height - borderTop - borderBottom;
+
+                if (isCameraOn && video.srcObject) {
+                    ctx.save();
+                    // Clip to content box to ensure video doesn't bleed over transparent borders
+                    ctx.beginPath();
+                    ctx.rect(contentX, contentY, contentW, contentH);
+                    ctx.clip();
+                    
+                    // Mirror Flip Logic: Translate to center of content, scale, draw
+                    ctx.translate(contentX + contentW / 2, contentY + contentH / 2);
+                    ctx.scale(-1, 1);
+                    ctx.drawImage(video, -contentW / 2, -contentH / 2, contentW, contentH);
+                    ctx.restore();
+
+                    // Draw Steam Overlay Manually (if active)
+                    if (steamOverlay) {
+                        ctx.save();
+                        ctx.globalCompositeOperation = 'overlay';
+                        ctx.globalAlpha = 0.6;
+                        // Adjust gradient to center of content
+                        const centerX = contentX + contentW / 2;
+                        const centerY = contentY + contentH / 2;
+                        const radius = Math.max(contentW, contentH);
+                        
+                        const grad = ctx.createRadialGradient(
+                            centerX, centerY, radius * 0.15,
+                            centerX, centerY, radius * 0.7
+                        );
+                        grad.addColorStop(0, 'transparent');
+                        grad.addColorStop(0.8, 'rgba(255,255,255,0.4)');
+                        grad.addColorStop(1, 'rgba(255,255,255,0.8)');
+                        
+                        ctx.fillStyle = grad;
+                        ctx.fillRect(contentX, contentY, contentW, contentH);
+                        ctx.restore();
+                    }
+                } else {
+                    // Camera Off - Fill Content with Grey
+                    ctx.fillStyle = "#e0e0e0";
+                    ctx.fillRect(contentX, contentY, contentW, contentH);
+                }
+
+                // 5. Capture DOM Overlay (Frame + Notes + Drawings)
+                // We hide video/steam to avoid double rendering
                 video.style.display = 'none';
-                if (steamOverlay) steamOverlay.style.display = 'none';
+                if(steamOverlay) steamOverlay.style.display = 'none';
+                
+                // Temporarily transparent BG so video shows through
+                mirrorContainer.style.backgroundColor = 'transparent';
 
                 const overlayCanvas = await html2canvas(mirrorContainer, {
-                    backgroundColor: null, // Transparent to see our base layer
-                    scale: 1,
+                    backgroundColor: null,
+                    scale: 1, // Match dimensions
                     logging: false,
                     useCORS: true,
                     allowTaint: true
                 });
 
-                // Draw the overlay on top of base layer
+                // 6. Composite Overlay
                 ctx.drawImage(overlayCanvas, 0, 0);
 
-                // 4. Save the final image
-                const url = baseCanvas.toDataURL('image/png');
+                // 7. Download
+                const url = finalCanvas.toDataURL('image/png');
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `mirror_screenshot_${Date.now()}.png`;
+                a.download = `mirror_photo_${Date.now()}.png`;
                 a.click();
 
             } catch (err) {
@@ -1215,15 +1241,18 @@
                 selector.style.display = originalDisplay.selector;
                 if(guide) guide.style.display = originalDisplay.guide;
                 if(settings) settings.style.display = originalDisplay.settings;
-                mirrorContainer.style.backgroundColor = originalDisplay.containerBg;
-                document.body.style.backgroundColor = originalDisplay.bodyBg;
-                if(steamOverlay) steamOverlay.style.display = originalDisplay.steamDisplay;
                 video.style.display = originalDisplay.videoDisplay;
+                if(steamOverlay) steamOverlay.style.display = originalDisplay.steamDisplay;
+                mirrorContainer.style.backgroundColor = originalDisplay.containerBg;
             }
         }
 
         async function toggleRecord() {
             const btn = document.getElementById('btn-record');
+            const mirrorContainer = document.getElementById('mirror-container');
+            const video = document.getElementById('mirror');
+            const steamOverlay = document.getElementById('steam-overlay');
+            const drawingCanvas = document.getElementById('drawing-canvas');
             
             if (mediaRecorder && mediaRecorder.state === 'recording') {
                 // STOP Recording
@@ -1232,63 +1261,102 @@
                 btn.innerHTML = "🔴";
                 btn.style.background = "#FF3B30";
                 
-                // Show controls again? They weren't hidden, but good to ensure state
+                // Stop stream tracks
+                if(recordingStream) recordingStream.getTracks().forEach(track => track.stop());
+                
             } else {
                 // START Recording
                 
-                // 1. Setup Composition Canvas
-                const recCanvas = document.createElement('canvas');
-                recCanvas.width = window.innerWidth;
-                recCanvas.height = window.innerHeight;
-                const ctx = recCanvas.getContext('2d');
-                const drawingCanvas = document.getElementById('drawing-canvas');
+                // 1. Setup Canvas based on Mirror Dimensions
+                const rect = mirrorContainer.getBoundingClientRect();
+                const computedStyle = window.getComputedStyle(mirrorContainer);
+                const borderLeft = parseFloat(computedStyle.borderLeftWidth);
+                const borderTop = parseFloat(computedStyle.borderTopWidth);
+                const borderRight = parseFloat(computedStyle.borderRightWidth);
+                const borderBottom = parseFloat(computedStyle.borderBottomWidth);
 
-                // 2. Start Composition Loop (30 FPS)
+                const recCanvas = document.createElement('canvas');
+                recCanvas.width = rect.width;
+                recCanvas.height = rect.height;
+                const ctx = recCanvas.getContext('2d');
+
+                // 2. Setup Loop Vars
+                const contentX = borderLeft;
+                const contentY = borderTop;
+                const contentW = rect.width - borderLeft - borderRight;
+                const contentH = rect.height - borderTop - borderBottom;
+
+                // 3. Start Composition Loop (30 FPS)
                 compositionInterval = setInterval(() => {
                     // Clear
                     ctx.clearRect(0, 0, recCanvas.width, recCanvas.height);
 
-                    // A. Draw Video
+                    // A. Draw Video (Inside Border)
                     if (isCameraOn && video.srcObject) {
                         ctx.save();
+                        ctx.beginPath();
+                        ctx.rect(contentX, contentY, contentW, contentH);
+                        ctx.clip();
+                        
+                        ctx.translate(contentX + contentW / 2, contentY + contentH / 2);
                         ctx.scale(-1, 1);
-                        ctx.drawImage(video, -recCanvas.width, 0, recCanvas.width, recCanvas.height);
+                        ctx.drawImage(video, -contentW / 2, -contentH / 2, contentW, contentH);
                         ctx.restore();
                     } else {
                         ctx.fillStyle = "#e0e0e0";
-                        ctx.fillRect(0, 0, recCanvas.width, recCanvas.height);
+                        ctx.fillRect(contentX, contentY, contentW, contentH);
                     }
 
-                    // B. Draw Frame (Simple Border Approximation)
-                    // (Optional: extracting frame styles is hard, maybe skip or draw simple border)
-                    // Let's skip complex frame styles for performance, or just draw the active frame color
-                    // const frameClass = localStorage.getItem('mirror_frame') || 'frame-gold';
-                    // (Frame rendering is complex, focusing on content first)
+                    // B. Draw Steam (Inside Border)
+                    if (steamOverlay && steamOverlay.style.display !== 'none') {
+                        ctx.save();
+                        ctx.globalCompositeOperation = 'overlay';
+                        ctx.globalAlpha = 0.6;
+                        const centerX = contentX + contentW / 2;
+                        const centerY = contentY + contentH / 2;
+                        const radius = Math.max(contentW, contentH);
+                        const grad = ctx.createRadialGradient(centerX, centerY, radius * 0.15, centerX, centerY, radius * 0.7);
+                        grad.addColorStop(0, 'transparent');
+                        grad.addColorStop(0.8, 'rgba(255,255,255,0.4)');
+                        grad.addColorStop(1, 'rgba(255,255,255,0.8)');
+                        ctx.fillStyle = grad;
+                        ctx.fillRect(contentX, contentY, contentW, contentH);
+                        ctx.restore();
+                    }
 
                     // C. Draw Drawing Canvas
+                    // drawing-canvas is absolute 0,0 of mirror-container.
+                    // So we draw it at 0,0 of our recCanvas.
                     ctx.drawImage(drawingCanvas, 0, 0);
 
-                    // D. Draw Images (Iterate DOM)
+                    // D. Draw Images (Floating Images)
                     const imgs = document.querySelectorAll('.floating-image');
                     imgs.forEach(div => {
                         const img = div.querySelector('img');
-                        const rect = div.getBoundingClientRect();
-                        const scale = parseFloat(div.getAttribute('data-scale')) || 1;
-                        
-                        // Need to account for transforms which getBoundingClientRect handles,
-                        // but drawing image needs raw logic or parsed matrix.
-                        // Simplified: Use rect x/y/w/h
                         if (img) {
-                            ctx.drawImage(img, rect.left, rect.top, rect.width, rect.height);
+                            const imgRect = div.getBoundingClientRect();
+                            // Simple intersection check
+                            if (imgRect.right > rect.left && imgRect.left < rect.right && 
+                                imgRect.bottom > rect.top && imgRect.top < rect.bottom) {
+                                
+                                ctx.drawImage(img, 
+                                    imgRect.left - rect.left, 
+                                    imgRect.top - rect.top, 
+                                    imgRect.width, 
+                                    imgRect.height
+                                );
+                            }
                         }
                     });
 
-                    // E. Draw Notes (Iterate Data)
+                    // E. Draw Notes
                     notes.forEach(note => {
-                        // Get current DOM position (in case it moved but not saved yet?)
-                        // Data is single source of truth for position
+                        const relativeX = note.x - rect.left;
+                        const relativeY = note.y - rect.top;
                         
-                        // We need to match the CSS styling
+                        // Check visibility
+                        if (relativeX > recCanvas.width || relativeY > recCanvas.height || relativeX + 220 < 0 || relativeY + 170 < 0) return;
+
                         ctx.save();
                         
                         // Shadow
@@ -1298,37 +1366,55 @@
 
                         // Background
                         ctx.fillStyle = note.style.bg;
-                        const w = 220 * (note.scale || 1); // Approx width from CSS
-                        // Height is variable... difficult.
-                        // Let's assume a reasonable height or calculate from text?
-                        // This is the hard part of "Fake DOM Recording".
-                        // We'll use a fixed approximate height or 170 scaled.
-                        const h = 170 * (note.scale || 1); 
-
-                        // Rounded Rect
-                        const r = (note.style.radius || 8) * (note.scale || 1);
+                        const scale = note.scale || 1;
+                        const w = 220 * scale; 
+                        const h = 170 * scale; 
+                        const r = (note.style.radius || 8) * scale;
+                        
                         ctx.beginPath();
-                        ctx.roundRect(note.x, note.y, w, h, r);
+                        ctx.roundRect(relativeX, relativeY, w, h, r);
                         ctx.fill();
 
                         // Text
-                        ctx.shadowColor = "transparent"; // No shadow for text
+                        ctx.shadowColor = "transparent";
                         ctx.fillStyle = note.style.color;
-                        ctx.font = `${(note.style.fontSize || 16) * (note.scale || 1)}px 'Segoe UI', sans-serif`;
+                        ctx.font = `${(note.style.fontSize || 16) * scale}px 'Segoe UI', sans-serif`;
                         
-                        // Padding
-                        const pad = 15 * (note.scale || 1);
-                        wrapText(ctx, note.content || "", note.x + pad, note.y + pad + (16 * (note.scale || 1)), w - (pad*2), (24 * (note.scale || 1)));
+                        const pad = 15 * scale;
+                        wrapText(ctx, note.content || "", relativeX + pad, relativeY + pad + (16 * scale), w - (pad*2), (24 * scale));
 
                         ctx.restore();
                     });
 
+                    // F. Draw Frame Border (Simple Simulation)
+                    // Draw stroke inside the canvas bounds
+                    const currentFrame = document.querySelector('#frame-selector select').value;
+                    if (currentFrame !== 'frame-none' && currentFrame !== 'frame-neon') {
+                         let color = '#d4af37';
+                         if (currentFrame === 'frame-silver') color = '#C0C0C0';
+                         if (currentFrame === 'frame-wood') color = '#8B4513';
+                         
+                         const lw = 15; // Border width
+                         ctx.lineWidth = lw;
+                         ctx.strokeStyle = color;
+                         // Offset by half line width to draw inside
+                         ctx.strokeRect(lw/2, lw/2, recCanvas.width - lw, recCanvas.height - lw);
+                    } else if (currentFrame === 'frame-neon') {
+                        const lw = 5;
+                        ctx.lineWidth = lw;
+                        ctx.strokeStyle = '#0ff';
+                        ctx.shadowBlur = 20;
+                        ctx.shadowColor = '#0ff';
+                        ctx.strokeRect(lw/2, lw/2, recCanvas.width - lw, recCanvas.height - lw);
+                        ctx.shadowBlur = 0; // Reset
+                    }
+
                 }, 1000 / 30); // 30 FPS
 
-                // 3. Create Stream from Canvas
+                // 4. Start Stream
                 recordingStream = recCanvas.captureStream(30);
 
-                // 4. Start MediaRecorder
+                // 5. Start MediaRecorder
                 mediaRecorder = new MediaRecorder(recordingStream, {
                     mimeType: 'video/webm;codecs=vp9'
                 });
