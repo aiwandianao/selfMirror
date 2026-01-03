@@ -1126,6 +1126,7 @@
             const settings = document.getElementById('global-settings-panel');
             const mirrorContainer = document.getElementById('mirror-container');
             const steamOverlay = document.getElementById('steam-overlay');
+            const video = document.getElementById('mirror');
             
             // Save original styles
             const originalDisplay = {
@@ -1135,7 +1136,8 @@
                 settings: settings ? settings.style.display : 'none',
                 containerBg: mirrorContainer.style.backgroundColor,
                 bodyBg: document.body.style.backgroundColor,
-                steamDisplay: steamOverlay ? steamOverlay.style.display : 'block'
+                steamDisplay: steamOverlay ? steamOverlay.style.display : 'block',
+                videoDisplay: video.style.display
             };
 
             // Hide UI
@@ -1144,72 +1146,60 @@
             if(guide) guide.style.display = 'none';
             if(settings) settings.style.display = 'none';
 
-            // IMPORTANT: Make EVERYTHING transparent so html2canvas captures ONLY the overlay elements (notes/images)
-            // The video will be drawn manually on the bottom layer
-            if (isCameraOn) {
-                mirrorContainer.style.backgroundColor = 'transparent';
-                document.body.style.backgroundColor = 'transparent'; 
-                // We also hide the steam overlay from DOM capture to prevent double rendering or occlusion
-                // We will draw it manually if needed, or just let it be captured if it's transparent.
-                // Actually, let's HIDE it from html2canvas and draw it manually to be safe.
-                if(steamOverlay) steamOverlay.style.display = 'none';
-            }
-
-            // 1. Prepare Base Canvas (Video)
+            // 1. Prepare Base Canvas
             const baseCanvas = document.createElement('canvas');
             baseCanvas.width = window.innerWidth;
             baseCanvas.height = window.innerHeight;
             const ctx = baseCanvas.getContext('2d');
 
-            // Draw Video (if active)
+            // 2. Draw Background Layer
             if (isCameraOn && video.srcObject) {
+                // Camera is on - draw video frame
                 ctx.save();
                 ctx.scale(-1, 1); // Mirror flip
                 ctx.drawImage(video, -baseCanvas.width, 0, baseCanvas.width, baseCanvas.height);
                 ctx.restore();
                 
-                // Draw Steam Overlay Manually (to ensure it sits on top of video but below notes)
-                // The steam overlay is a radial gradient.
-                // background: radial-gradient(circle at center, transparent 30%, rgba(255,255,255,0.4) 80%, rgba(255,255,255,0.8) 100%);
-                // mix-blend-mode: overlay; opacity: 0.6;
-                ctx.save();
-                ctx.globalCompositeOperation = 'overlay';
-                ctx.globalAlpha = 0.6;
-                const grad = ctx.createRadialGradient(
-                    baseCanvas.width/2, baseCanvas.height/2, baseCanvas.width * 0.15, // Inner circle (approx 30% of radius?)
-                    baseCanvas.width/2, baseCanvas.height/2, baseCanvas.width * 0.7  // Outer circle
-                );
-                grad.addColorStop(0, 'transparent');
-                grad.addColorStop(0.8, 'rgba(255,255,255,0.4)');
-                grad.addColorStop(1, 'rgba(255,255,255,0.8)');
-                ctx.fillStyle = grad;
-                ctx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
-                ctx.restore();
-
+                // Draw Steam Overlay if it exists
+                if (steamOverlay) {
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'overlay';
+                    ctx.globalAlpha = 0.6;
+                    const grad = ctx.createRadialGradient(
+                        baseCanvas.width/2, baseCanvas.height/2, baseCanvas.width * 0.15,
+                        baseCanvas.width/2, baseCanvas.height/2, baseCanvas.width * 0.7
+                    );
+                    grad.addColorStop(0, 'transparent');
+                    grad.addColorStop(0.8, 'rgba(255,255,255,0.4)');
+                    grad.addColorStop(1, 'rgba(255,255,255,0.8)');
+                    ctx.fillStyle = grad;
+                    ctx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
+                    ctx.restore();
+                }
             } else {
+                // Camera is off - draw container background
                 ctx.fillStyle = "#e0e0e0";
                 ctx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
             }
 
-            // 2. Capture DOM Overlays (Notes, Images, Drawings, Frame)
+            // 3. Capture and overlay DOM elements (notes, images, drawings, frame)
             try {
-                const overlayCanvas = await html2canvas(document.body, {
-                    backgroundColor: null, // Transparent
-                    scale: 1, // Match screen pixels
+                // Temporarily hide the video element to prevent double capture
+                video.style.display = 'none';
+                if (steamOverlay) steamOverlay.style.display = 'none';
+
+                const overlayCanvas = await html2canvas(mirrorContainer, {
+                    backgroundColor: null, // Transparent to see our base layer
+                    scale: 1,
                     logging: false,
-                    ignoreElements: (element) => {
-                        // Ignore video element itself (we drew it manually)
-                        // Ignore controls (already hidden)
-                        if (element.tagName === 'VIDEO') return true;
-                        if (element.id === 'controls') return true;
-                        return false;
-                    }
+                    useCORS: true,
+                    allowTaint: true
                 });
 
-                // 3. Composite
+                // Draw the overlay on top of base layer
                 ctx.drawImage(overlayCanvas, 0, 0);
 
-                // 4. Save
+                // 4. Save the final image
                 const url = baseCanvas.toDataURL('image/png');
                 const a = document.createElement('a');
                 a.href = url;
@@ -1228,6 +1218,7 @@
                 mirrorContainer.style.backgroundColor = originalDisplay.containerBg;
                 document.body.style.backgroundColor = originalDisplay.bodyBg;
                 if(steamOverlay) steamOverlay.style.display = originalDisplay.steamDisplay;
+                video.style.display = originalDisplay.videoDisplay;
             }
         }
 
